@@ -165,11 +165,13 @@ schmidt_hourly <- brooks_temp_wide_full |>
   ungroup() |>
   select(datetime_hour = datetime, schmidt_stability) |>
   mutate(
-    stability_24hr = rollmean(
+    stability_24hr = as.numeric(
+      rollmean(
       schmidt_stability,
       k = 24,
       fill = NA,
       align = "center"
+      )
     ),
     strat_state = case_when(
       stability_24hr <= 25 ~ "Mixed/Weak",
@@ -196,6 +198,48 @@ sampling_dates <- as.POSIXct(paste0(c(
   "2025-09-30",
   "2025-10-14"
 ) ," 12:00:00"),  tz = "America/Denver")
+
+## plot without colroed lines 
+brooks_stability_plot <- ggplot(
+  schmidt_hourly,
+  aes(x = datetime_hour)
+) +
+  
+  # raw hourly
+  geom_line(
+    aes(y = schmidt_stability),
+    linewidth = 0.35,
+    alpha = 0.2,
+    color = "gray60"
+  ) +
+  
+  # smoothed 24 hr
+  geom_line(
+    aes(y = stability_24hr),
+    linewidth = 1.1,
+    color = "black"
+  ) +
+  
+  geom_vline(
+    xintercept = sampling_dates,
+    linetype = "dashed",
+    color = "gray50",
+    alpha = 0.6
+  ) +
+  
+  scale_x_datetime(
+    date_breaks = "1 month",
+    date_labels = "%b"
+  ) +
+  
+  labs(
+    x = "Date",
+    y = expression("Schmidt stability (J m"^{-2}*")")
+  ) +
+  
+  theme_classic(base_family = "Helvetica")
+
+brooks_stability_plot
 
 
 ## plotting stability with colored lines 
@@ -1654,35 +1698,16 @@ p_ts
 ## phytoplanlton data 
 
 library(readxl)
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(scales)
+
+# ------------------------------------------------------------
+# Clean phytoplankton data
+# ------------------------------------------------------------
 WYDEQ_2025_Lander_Phytoplankton_Heterocyst_Flat_Data <- read_excel("data_raw/phytoplankton/WYDEQ 2025 Lander Phytoplankton Heterocyst Flat Data.xlsx")
 View(WYDEQ_2025_Lander_Phytoplankton_Heterocyst_Flat_Data)  
-
-
-library(tidyverse)
-library(lubridate)
-library(janitor)
-library(scales)
-
-library(tidyverse)
-library(lubridate)
-library(janitor)
-
-# ------------------------------------------------------------
-# Clean phytoplankton data
-# ------------------------------------------------------------
-
-library(tidyverse)
-library(lubridate)
-library(janitor)
-
-library(tidyverse)
-library(lubridate)
-library(janitor)
-library(scales)
-
-# ------------------------------------------------------------
-# Clean phytoplankton data
-# ------------------------------------------------------------
 
 phyto_clean <- WYDEQ_2025_Lander_Phytoplankton_Heterocyst_Flat_Data |>
   clean_names() |>
@@ -2343,3 +2368,109 @@ ggplot(
   scale_x_continuous(trans = "log1p") +
   scale_y_continuous(trans = "log1p") +
   theme_classic()
+
+
+### overlay it all 
+# Surface overlay data ----------------------------------------------------
+
+surface_nutrients <- nutrients_long |>
+  filter(depth_zone == "Surface") |>
+  transmute(
+    date,
+    parameter = nutrient,
+    value = concentration
+  )
+
+surface_mc <- grab_toxins_brooks |>
+  filter(toxin_class == "microcystin",
+         depth_category == "surface") |>
+  group_by(date) |>
+  summarise(value = mean(total, na.rm = TRUE), .groups = "drop") |>
+  mutate(parameter = "Surface microcystin")
+
+surface_cyano <- brooks_cyano_summary |>
+  transmute(
+    date = as.Date(date),
+    parameter = "Cyanobacteria abundance",
+    value = cyano_cells_l
+  )
+
+stability_overlay <- schmidt_daily |>
+  transmute(
+    date,
+    parameter = "Schmidt stability",
+    value = stability_daily
+  )
+
+surface_overlay <- bind_rows(
+  surface_nutrients,
+  surface_mc,
+  surface_cyano,
+  stability_overlay
+) |>
+  filter(!is.na(value)) |>
+  group_by(parameter) |>
+  mutate(value_z = as.numeric(scale(value))) |>
+  ungroup()
+
+ggplot(surface_overlay,
+       aes(x = date, y = value_z, color = parameter)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, color = "gray70") +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    x = "Date",
+    y = "Standardized value (z-score)",
+    color = "Parameter",
+    title = "Brooks Lake surface samples: standardized overlay"
+  ) +
+  theme_classic(base_family = "Helvetica")
+## bottom 
+bottom_nutrients_overlay <- nutrients_long |>
+  filter(depth_zone == "Deep") |>
+  transmute(
+    date,
+    parameter = nutrient,
+    value = concentration
+  )
+
+bottom_mc <- grab_toxins_brooks |>
+  filter(toxin_class == "microcystin",
+         depth_category == "bottom") |>
+  group_by(date) |>
+  summarise(value = mean(total, na.rm = TRUE), .groups = "drop") |>
+  mutate(parameter = "Bottom microcystin")
+
+bottom_do <- deep_do_daily |>
+  transmute(
+    date,
+    parameter = "Bottom DO",
+    value = deep_do_mgl
+  )
+
+bottom_overlay <- bind_rows(
+  bottom_nutrients_overlay,
+  bottom_mc,
+  bottom_do,
+  stability_overlay
+) |>
+  filter(!is.na(value)) |>
+  group_by(parameter) |>
+  mutate(value_z = as.numeric(scale(value))) |>
+  ungroup()
+
+ggplot(bottom_overlay,
+       aes(x = date, y = value_z, color = parameter)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, color = "gray70") +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    x = "Date",
+    y = "Standardized value (z-score)",
+    color = "Parameter",
+    title = "Brooks Lake bottom samples: standardized overlay"
+  ) +
+  theme_classic(base_family = "Helvetica")
+
+colnames(deq_nutrients_clean_2025)
+colnames(LakeData_Brooks2009_2024_Rstudio)
