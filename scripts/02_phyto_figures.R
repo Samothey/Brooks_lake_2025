@@ -1,91 +1,36 @@
 
 
-
+###
+# ======================================================================
+# Phytoplankton / cyanobacteria community panel figure
+# ======================================================================
 
 library(tidyverse)
 library(scales)
+library(cowplot)
 
-# Read data -------------------------------------------------------------
+source("theme_thesis.R")
 
 phyto_clean <- readRDS(
   "~/Desktop/Project/Brooks_lake_2025/data_clean/phytoplankton/phyto_clean.rds"
 )
 
-# Output folder ---------------------------------------------------------
-
 fig_dir <- "~/Desktop/Project/Brooks_lake_2025/figures/phytoplankton"
-
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 # ======================================================================
-# 1. Total cyanobacteria abundance
+# Data preparation
 # ======================================================================
 
-cyano_total <- phyto_clean %>%
-  filter(division == "cyanophyta") %>%
-  group_by(lake, date) %>%
-  summarise(
-    cyano_cells = sum(total_cells, na.rm = TRUE),
-    .groups = "drop"
+phyto_4lakes <- phyto_clean %>%
+  filter(lake %in% lake_order) %>%
+  mutate(
+    lake = factor(lake, levels = lake_order),
+    date = as.Date(date),
+    division = str_to_lower(division)
   )
 
-# Raw abundance: actual units ------------------------------------------
-
-p_cyano_raw <- ggplot(
-  cyano_total,
-  aes(x = date, y = cyano_cells)
-) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  facet_wrap(~ lake, scales = "free_y") +
-  scale_y_continuous(labels = comma) +
-  labs(
-    x = NULL,
-    y = expression(paste("Cyanobacteria abundance (cells ", L^{-1}, ")"))
-  ) +
-  theme_bw()
-
-p_cyano_raw
-
-ggsave(
-  filename = file.path(fig_dir, "cyano_total_raw_cells_per_L.png"),
-  plot = p_cyano_raw,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-
-# Log10 abundance: transformed -----------------------------------------
-
-p_cyano_log <- ggplot(
-  cyano_total,
-  aes(x = date, y = cyano_cells)
-) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  facet_wrap(~ lake) +
-  scale_y_log10(labels = comma) +
-  labs(
-    x = NULL,
-    y = expression(paste("Log"[10], " cyanobacteria abundance (cells ", L^{-1}, ")"))
-  ) +
-  theme_bw()
-
-p_cyano_log
-
-ggsave(
-  filename = file.path(fig_dir, "cyano_total_log10_cells_per_L.png"),
-  plot = p_cyano_log,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-
-# ======================================================================
-# 2. Relative abundance by phytoplankton division
-# ======================================================================
-
-phyto_division <- phyto_clean %>%
+phyto_division <- phyto_4lakes %>%
   mutate(
     division = case_when(
       division == "bacillariophyta" ~ "Diatoms",
@@ -94,7 +39,7 @@ phyto_division <- phyto_clean %>%
       division == "cryptophyta" ~ "Cryptophytes",
       division == "cyanophyta" ~ "Cyanobacteria",
       division %in% c("pyrrhophyta", "rotifera") ~ "Other",
-      TRUE ~ division
+      TRUE ~ str_to_title(division)
     )
   ) %>%
   group_by(lake, date, division) %>%
@@ -108,165 +53,201 @@ phyto_division <- phyto_clean %>%
   ) %>%
   ungroup()
 
-phyto_division_rel <- ggplot(
-  phyto_division,
-  aes(x = date, y = rel_abundance, fill = division)
-) +
-  geom_col(width = 10, alpha = 0.9) +
-  facet_wrap(~ lake) +
-  scale_y_continuous(
-    labels = scales::percent,
-    limits = c(0, 1)
-  ) +
-  labs(
-    x = NULL,
-    y = "Relative abundance",
-    fill = "Division"
-  ) +
-  theme_bw()
-
-phyto_division_rel
-
-ggsave(
-  filename = file.path(fig_dir, "phyto_division_relative_abundance.png"),
-  plot = phyto_division_rel,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-
-# ======================================================================
-# 3. Cyanobacteria vs other phytoplankton
-# ======================================================================
-
-phyto_cyano <- phyto_clean %>%
-  mutate(
-    group = if_else(
-      division == "cyanophyta",
-      "Cyanobacteria",
-      "Other phytoplankton"
-    )
-  ) %>%
-  group_by(lake, date, group) %>%
-  summarise(
-    cells = sum(total_cells, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  group_by(lake, date) %>%
-  mutate(
-    rel_abundance = cells / sum(cells, na.rm = TRUE)
-  ) %>%
-  ungroup()
-
-p_cyano_vs_other_rel <- ggplot(
-  phyto_cyano,
-  aes(x = date, y = rel_abundance, fill = group)
-) +
-  geom_area(alpha = 0.9) +
-  facet_wrap(~ lake) +
-  scale_y_continuous(labels = percent) +
-  labs(
-    x = NULL,
-    y = "Relative abundance",
-    fill = NULL
-  ) +
-  theme_bw()
-
-p_cyano_vs_other_rel
-
-ggsave(
-  filename = file.path(fig_dir, "cyano_vs_other_relative_abundance.png"),
-  plot = p_cyano_vs_other_rel,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-
-# ======================================================================
-# 4. Relative abundance of cyanobacteria taxa only
-# ======================================================================
-
-cyano_taxa <- phyto_clean %>%
+cyano_taxa <- phyto_4lakes %>%
   filter(division == "cyanophyta") %>%
   group_by(lake, date, taxon) %>%
   summarise(
     cells = sum(total_cells, na.rm = TRUE),
     .groups = "drop"
-  ) %>%
+  )
+
+cyano_taxa_rel <- cyano_taxa %>%
   group_by(lake, date) %>%
   mutate(
     rel_abundance = cells / sum(cells, na.rm = TRUE)
   ) %>%
   ungroup()
 
-p_cyano_taxa_rel <- ggplot(
-  cyano_taxa,
+# ======================================================================
+# Dominant cyanobacteria taxa table
+# ======================================================================
+
+dominant_cyano_taxa <- cyano_taxa %>%
+  group_by(lake, taxon) %>%
+  summarise(
+    total_cyano_cells = sum(cells, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  group_by(lake) %>%
+  mutate(
+    percent_of_cyano = total_cyano_cells /
+      sum(total_cyano_cells, na.rm = TRUE) * 100
+  ) %>%
+  arrange(lake, desc(total_cyano_cells))
+
+write_csv(
+  dominant_cyano_taxa,
+  file.path(fig_dir, "dominant_cyano_taxa_by_lake.csv")
+)
+
+# ======================================================================
+# Shared y-axis limits for Panel C
+# ======================================================================
+
+cyano_min <- min(cyano_taxa$cells[cyano_taxa$cells > 0], na.rm = TRUE)
+cyano_max <- max(cyano_taxa$cells, na.rm = TRUE)
+
+cyano_y_limits <- c(
+  10^floor(log10(cyano_min)),
+  10^ceiling(log10(cyano_max))
+)
+
+cyano_y_breaks <- 10^seq(
+  floor(log10(cyano_y_limits[1])),
+  ceiling(log10(cyano_y_limits[2])),
+  by = 1
+)
+
+# ======================================================================
+# Panel A: Phytoplankton relative abundance
+# ======================================================================
+
+pA <- ggplot(
+  phyto_division,
+  aes(x = date, y = rel_abundance, fill = division)
+) +
+  geom_col(width = 10, alpha = 0.9) +
+  facet_wrap(~ lake, nrow = 1) +
+  scale_y_continuous(
+    labels = percent_format(),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  date_scale_thesis() +
+  labs(
+    x = NULL,
+    y = "Phytoplankton\nrelative abundance",
+    fill = NULL
+  ) +
+  theme_thesis() +
+  theme_lake_strip() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+
+legend_A <- legend_row(
+  pA,
+  aesthetic = "fill",
+  nrow = 2
+)
+
+pA_clean <- pA + theme_no_legend()
+
+# ======================================================================
+# Panel B: Cyanobacteria relative abundance
+# ======================================================================
+
+pB <- ggplot(
+  cyano_taxa_rel,
   aes(x = date, y = rel_abundance, fill = taxon)
 ) +
   geom_col(width = 10, alpha = 0.9) +
-  facet_wrap(~ lake) +
+  facet_wrap(~ lake, nrow = 1) +
   scale_y_continuous(
-    labels = scales::percent,
-    limits = c(0, 1)
+    labels = percent_format(),
+    limits = c(0, 1),
+    expand = c(0, 0)
   ) +
+  date_scale_thesis() +
   labs(
     x = NULL,
-    y = "Relative abundance of cyanobacteria",
-    fill = "Cyanobacteria taxon"
+    y = "Cyanobacteria\nrelative abundance",
+    fill = NULL
   ) +
-  theme_bw()
+  theme_thesis() +
+  theme_lake_strip() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
 
-p_cyano_taxa_rel
-
-ggsave(
-  filename = file.path(fig_dir, "cyano_taxa_relative_abundance.png"),
-  plot = p_cyano_taxa_rel,
-  width = 10,
-  height = 6,
-  dpi = 300
+legend_B <- legend_row(
+  pB,
+  aesthetic = "fill",
+  nrow = 1
 )
 
+pB_clean <- pB + theme_no_legend()
+
 # ======================================================================
-# 5. Cyanobacteria taxa abundance through time
+# Panel C: Cyanobacteria cell abundance
 # ======================================================================
 
-p_cyano_taxa_cells <- ggplot(
+pC <- ggplot(
   cyano_taxa,
   aes(x = date, y = cells, color = taxon)
 ) +
-  geom_line(linewidth = 1) +
-  geom_point(size = 2) +
-  facet_wrap(~ lake, scales = "free_y") +
-  scale_y_log10(labels = comma) +
+  geom_line(linewidth = 0.9) +
+  geom_point(size = 1.8) +
+  facet_wrap(~ lake, nrow = 1) +
+  scale_y_log10(
+    limits = cyano_y_limits,
+    breaks = cyano_y_breaks,
+    labels = label_scientific(),
+    expand = expansion(mult = c(0.05, 0.08))
+  ) +
+  date_scale_thesis() +
   labs(
     x = NULL,
-    y = expression(paste("Cyanobacteria abundance (cells ", L^{-1}, ")")),
-    color = "Taxon"
+    y = expression(Cyanobacteria~cells~L^{-1}),
+    color = NULL
   ) +
-  theme_bw()
-
-p_cyano_taxa_cells
-
-ggsave(
-  filename = file.path(fig_dir, "cyano_taxa_log10_cells_per_L.png"),
-  plot = p_cyano_taxa_cells,
-  width = 10,
-  height = 6,
-  dpi = 300
-)
-
-# ======================================================================
-# 6. Helpful summary table for interpretation
-# ======================================================================
-
-cyano_summary <- cyano_total %>%
-  group_by(lake) %>%
-  summarise(
-    peak_cyano_cells = max(cyano_cells, na.rm = TRUE),
-    date_peak_cyano = date[which.max(cyano_cells)],
-    mean_cyano_cells = mean(cyano_cells, na.rm = TRUE),
-    .groups = "drop"
+  theme_thesis() +
+  theme_lake_strip() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1,
+      size = 7.5
+    )
   )
 
-cyano_summary
+legend_C <- legend_row(
+  pC,
+  aesthetic = "color",
+  nrow = 1
+)
 
+pC_clean <- pC + theme_no_legend()
+
+# ======================================================================
+# Final figure
+# ======================================================================
+
+phyto_cyano_panel_publication <- publication_panel_3row(
+  row_A = pA_clean,
+  row_B = pB_clean,
+  row_C = pC_clean,
+  legend_A = legend_A,
+  legend_B = NULL,
+  legend_C = legend_C,
+  titles = c(
+    "Phytoplankton relative abundance",
+    "Cyanobacteria relative abundance",
+    "Cyanobacteria cell abundance"
+  ),
+  heights = c(
+    1.20, 0.42,   # Panel A + 2-row legend
+    1.05,         # Panel B
+    1.35, 0.285    # Panel C + legend
+  )
+)
+phyto_cyano_panel_publication
+
+save_thesis_fig(
+  phyto_cyano_panel_publication,
+  file.path(fig_dir, "phyto_cyano_panel_publication_layout.png"),
+  width = 15,
+  height = 12.5
+)

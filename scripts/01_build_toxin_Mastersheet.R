@@ -161,3 +161,6 @@ write.csv(
 # View dataset ---------------------------------------------------------
 
 View(master_tox)
+
+
+### i need to create a new tox_plot sheet, with adjusting the total concentrations for SPATT, you divide the total_mc by 3 grams of resin. 
